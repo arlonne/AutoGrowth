@@ -11,10 +11,10 @@ The format of the inital POSCAR (POSCAR.0) can be refered to our GenLS code, tha
 
 The stand VASP v5 format POSCAR.0 should be modified as following:
 MergedCell
-   1.00000000000000     
-     3.43500000000     0.00000000000     0.00000000000
-    -1.71750000000     2.97479726200     0.00000000000
-     0.00000000000     0.00000000000    39.01558371223
+1.00000000000000
+3.43500000000     0.00000000000     0.00000000000
+-1.71750000000     2.97479726200     0.00000000000
+0.00000000000     0.00000000000    39.01558371223
   C   Sc  C   O 
   2   8   2   8
 Selective
