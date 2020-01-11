@@ -10,7 +10,6 @@ M is the chemical symbol of atoms that will be substituted; N is the chemical sy
 The format of the inital POSCAR (POSCAR.0) can be refered to our GenLS code, that is:
 
 The stand VASP v5 format POSCAR.0 should be modified as following:
-
 MergedCell
    1.00000000000000     
      3.43500000000     0.00000000000     0.00000000000
@@ -40,6 +39,7 @@ Direct
      0.66666666667     0.33333333333     0.52819669085  T T T M
      0.00000000000     0.00000000000     0.68362176521  F F T M
      0.33333333333     0.66666666667     0.78213833573  T T T M
+
 
 If Fe substitute Sc, the symbol 'Fe' should be placed on the positions of Sc, and others marked as 'M'.
 If Sc vacances are need, the symbol 'X' should be placed on the positions of Sc, and others marked as 'M'.
