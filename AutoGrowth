@@ -1,0 +1,262 @@
+#!/bin/bash
+set -o errexit
+
+# Input Parameters:
+## start from how many ("1") defect(s)
+## "2" number of atoms that substitution or vacancy should be chosen from
+## "3" element name that should be substituted/vacancy!
+## "4" defect element name
+
+#
+pawroot='/opt/QMD'
+
+if [ x${4} != x ];then
+
+j=${1}
+nat=${2}
+#nround=${nat}
+nround=5
+j=$((j-1))
+while [ ${j} -lt ${nround} ];do
+j=$((j+1))
+
+#A: LDA energy for inital selection
+if [ ! -d "N${j}" ];then
+
+# generate defect structures ./genalloy.sh ${j} ${2}
+k=$(($nat-${j}+1))
+i=$((j-1))
+if [ -s POSCAR.${i} ];then
+mkdir N${j}
+
+cat>inpara.in<<!
+${k}
+1
+POSCAR.${i}
+!
+
+else
+  echo "           --------------- ERROR -------------            "
+  echo ">>>>>>>>>>>>>>>>> No inital POSCAR.${i} <<<<<<<<<<<<<<<<<<"
+  echo
+  exit 1
+fi
+
+if [ -s GenLS.ne ];then
+./GenLS.ne -2
+mv POSCAR_permu*  N${j}
+mv Allpermu.out N${j}
+#mv Finalpermu.out N${j}
+#rm -f Allpermu.out
+else
+  echo "           --------------- ERROR -------------            "
+  echo ">>>>>>>>>>>>>>>>> No prgram GenLS.ne <<<<<<<<<<<<<<<<<<"
+  echo
+  exit 1
+fi
+
+#prepare vasp jobs
+cd N${j}
+for m in `ls POSCAR_permu*`
+do
+posroot=${m:7}
+p=${m:12}
+
+mkdir p${p}
+cd p${p}
+cp ../${m} POSCAR.tmp
+../../posforrandgen.ne ${3} ${4} POSCAR.tmp
+mv POSCAR.md POSCAR
+rm -f POSCAR.tmp
+
+atxt=$(head -8 POSCAR|tail -1|awk '{print $1}')
+if [ ${atxt} == 'Selective' ];then
+  sed -i '8d' POSCAR
+fi
+
+#POTCAR
+if [ -e POSCAR ];then
+   aelem2=($(head -6 POSCAR|tail -1))
+else
+   exit
+fi
+if [ -e POTCAR ];then
+   rm POTCAR
+fi
+for k in ${aelem2[@]}
+do
+     if [ "${k}" == "Ag" ] || [ "${k}" == "Cu" ] || [ "${k}" == "Pt" ] || [ "${k}" == "Ni" ] || \
+        [ "${k}" == "Ta" ] || [ "${k}" == "Os" ] || [ "${k}" == "Re" ] || [ "${k}" == "Pd" ] || \
+        [ "${k}" == "Rh" ] || [ "${k}" == "Ti" ] || [ "${k}" == "Mn" ] || [ "${k}" == "V" ] || \
+        [ "${k}" == "Co" ] || [ "${k}" == "Cr" ] || [ "${k}" == "Fe" ];then
+       cat ${pawroot}/paw-pbe/${k}_pv/POTCAR>>POTCAR
+     elif [ "${k}" == "Ba" ] || [ "${k}" == "Hf" ] || [ "${k}" == "Mg" ] || \
+          [ "${k}" == "Ra" ] || [ "${k}" == "Sr" ] || [ "${k}" == "W" ] || [ "${k}" == "Be" ] || \
+          [ "${k}" == "Cs" ] || [ "${k}" == "K" ] || [ "${k}" == "Mo" ] || [ "${k}" == "Rb" ] || \
+          [ "${k}" == "Tc" ] || [ "${k}" == "Y" ] || [ "${k}" == "Ca" ] || \
+          [ "${k}" == "Li" ] || [ "${k}" == "Na" ] || [ "${k}" == "Ru" ] || \
+          [ "${k}" == "Zr" ] || [ "${k}" == "Fr" ] || \
+          [ "${k}" == "Nb" ] || [ "${k}" == "Sc" ];then
+       cat ${pawroot}/paw-pbe/${k}_sv/POTCAR>>POTCAR
+     else
+       cat ${pawroot}/paw-pbe/${k}/POTCAR>>POTCAR
+     fi
+done
+
+#calculation script
+cat>calene.pbs<<!
+#!/bin/bash
+#PBS -N N${j}-p${p}
+#PBS -l nodes=1:ppn=16
+#PBS -j oe
+#PBS -V
+
+cd \${PBS_O_WORKDIR}
+export OMP_NUM_THREADS=1
+NP=\$(cat \$PBS_NODEFILE | wc -l)
+mpirun -np \${NP} vasp_gam>ene.out
+!
+
+#KPOINTS
+cat>KPOINTS<<!
+kp
+0
+Gamma
+1 1 1
+0 0 0
+!
+
+cat>INCAR<<!
+ISTART=0
+ISMEAR=0; SIGMA=0.05
+PREC = N; LREAL = A 
+NELM = 150; NELMIN=3
+LMAXMIX = 4
+ALGO=F
+LPLANE  = T
+NSIM = 4
+NPAR = 1 
+ISYM=0
+LWAVE = F ; LCHARG = F 
+!
+
+#
+cd ../
+done
+
+#submit vasp jobs
+#for m in `ls POSCAR_permu*`
+for m in `ls -d p*`
+do
+#posroot=${m:7}
+#p=${m:12}
+p=${m}
+  isfull='T'
+  while [ ${isfull} == 'T' ];do
+     yhnum=$(qstat|wc -l)
+     jobnum=$((yhnum-2))
+     if [ ${jobnum} -lt 10 ]; then
+       cd ${p}
+#      yhbatch -N 1 -n 28 -J "${p}-N${j}" -t 10 -p TH_HPC1 calene.pbs
+       qsub calene.pbs
+       isfull='F'
+       cd ../
+     else
+       sleep 600
+     fi
+  done
+done
+cd ../
+
+#B check A finish or not
+##chkgdconv.sh N${j}
+cd N${j}
+for m in `ls -d p*`
+do
+posroot=${m:1}
+cd ${m}
+
+  isconv='F'
+  jobconv='N'
+  nconv=1000
+ while [ ${isconv} == 'F' ];do
+   if [ -s ene.out ];then
+     nconv=$(grep -B 1 '1 F=' ene.out|head -1|awk '{print $2}')
+     nconv=${nconv:=1000}
+     if [ ${nconv} -lt 150 ];then
+       isconv='T'
+       echo "p${posroot} GD Converged!"
+     fi
+   else
+     sleep 300
+   fi
+ done
+cd ../
+done
+cd ../
+
+fi
+#END B
+
+#C
+#exact energy: exband-vp.sh
+if [ -e SUMBANDENEVP-N${j} ];then
+  rm -f SUMBANDENEVP-N${j}
+fi
+if [ -e SUMBANDENEVP-N${j}-sort ];then
+  rm -f SUMBANDENEVP-N${j}-sort
+fi
+cd N${j}
+for m in `ls -d p*`
+do
+posroot=${m:1}
+cd p${posroot}
+if [ -s ene.out ];then
+ene=$(tail -1 OSZICAR | awk '{print $5}')
+#la=$(head -3 POSCAR | tail -1|awk '{printf("%6.3f",$1)}')
+#dip=$(grep 'dipolmoment' OUTCAR | awk '{print $4}')
+#vbm=$(../../vpholu.ne|head -3|tail -1|awk '{print $8}')
+#cbm=$(../../vpholu.ne|head -4|tail -1|awk '{print $8}')
+#kpv=$(../../vpholu.ne|head -3|tail -1|awk '{print " " $11 " " $12 " " $13}')
+#kpc=$(../../vpholu.ne|head -4|tail -1|awk '{print " " $11 " " $12 " " $13}')
+#gap=$(../../vpholu.ne|tail -1|awk '{print $7}')
+#dipc=$(grep 'dipol+quadrupol energy correction' OUTCAR | awk '{print $4}')
+#vdwc=$(grep 'Edisp (eV)' OUTCAR | awk '{print $3}')
+#echo "${1}-${posroot}  $ene  $vbm  $cbm  $gap  $kpv  $kpc">>../../SUMBANDENEVP-${1}
+echo "N${j}-${posroot}  $ene  ">>../../SUMBANDENEVP-N${j}
+else
+echo "N${j}-${m} no ene.out!"
+exit 1
+fi
+cd ../
+done
+cd ../
+
+# remove the same energy
+sort -nk 2 SUMBANDENEVP-N${j}>SUMBANDENEVP-N${j}-sort
+rm -f SUMBANDENEVP-N${j}
+./uniqstr.ne SUMBANDENEVP-N${j}-sort
+if [ $? == 1 ];then
+  exit 1
+fi
+sort -nk 2 rmdupl.dat>rmdupl-N${j}-sort
+rm -f rmdupl.dat
+# find out the most energitical structure
+enemax_pnum=$(head -1 rmdupl-N${j}-sort | cut -d'-' -f2)
+pnum=$(echo ${enemax_pnum} | sed 's/[[:space:]]//g')
+#cp N${j}/POSCAR_permu${enemax_pnum} POSCAR.tmp
+cp N${j}/p${pnum}/POSCAR POSCAR.${j}
+# Modify POSCAR
+#./posforrandgen.ne ${3} ${4} POSCAR.tmp
+if [ $? == 1 ];then
+  exit 1
+fi
+#mv POSCAR.md POSCAR.${j}
+#rm -f POSCAR.tmp
+#END C 
+
+echo ">>>>>>>>>>>>>>>>>>>>> Cong! N${j} Was Successfully Compeleted!<<<<<<<<<<<<<<<<<<"
+echo ">>>>>>>>>>>>>>>>>>>>>  N$((j+1)) Will be Started! <<<<<<<<<<<<<<<<<<"
+
+done
+fi
